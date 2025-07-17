@@ -1,3 +1,6 @@
+Here is your **properly indented, clean, ready-to-run code** for your Flask TradingView webhook with PnL management:
+
+```
 from datetime import datetime
 from flask import Flask, request, jsonify, render_template_string, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
@@ -17,23 +20,22 @@ class Signal(db.Model):
     price = db.Column(db.Float)
     time = db.Column(db.String(50))
     pnl = db.Column(db.Float, nullable=True)
-    cumulative_pnl = db.Column(db.Float, nullable=True)  # New column
 
 with app.app_context():
     db.create_all()
 
 @app.route('/')
 def home():
-    return """
+    return '''
     <html>
     <head><title>Webhook Receiver</title></head>
     <body style="font-family: Arial; background-color: #f0f8ff; text-align: center; padding-top: 80px;">
-    <h1>🚀 Webhook Receiver with Cumulative PnL</h1>
+    <h1>🚀 Webhook Receiver with PnL</h1>
     <p>Send TradingView webhook to <strong>/webhook</strong> endpoint.</p>
     <p>View stored signals table at <a href='/signals' target='_blank'>/signals</a>.</p>
     </body>
     </html>
-    """
+    '''
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -51,38 +53,18 @@ def webhook():
 
         pnl_value = None
 
-        # Get previous signal to enforce alternating logic
-        last_signal = Signal.query.order_by(Signal.id.desc()).first()
-        prev_cum_pnl = last_signal.cumulative_pnl if last_signal and last_signal.cumulative_pnl is not None else 0
-
-        today_str = ist_time.strftime("%d-%m-%Y")
-        today_signals = Signal.query.filter(Signal.time.like(f"{today_str}%")).order_by(Signal.id.asc()).all()
-
-        if not today_signals:
-            if event != "buy":
-                return jsonify({"status": "error", "message": "First signal of the day must be a BUY."}), 400
-        else:
-            last_event = today_signals[-1].event
-            if last_event == event:
-                return jsonify({"status": "error", "message": f"Signal must alternate. Last was {last_event}."}), 400
-
         if event == "sell":
             unmatched_buy = Signal.query.filter_by(symbol=symbol, event='buy', pnl=None).order_by(Signal.id.asc()).first()
             if unmatched_buy:
                 pnl_value = price - unmatched_buy.price
-                unmatched_buy.pnl = None  # keep blank for buy
+                unmatched_buy.pnl = pnl_value
                 db.session.commit()
-            else:
-                return jsonify({"status": "error", "message": "No unmatched BUY signal found for this SELL."}), 400
-            cumulative_pnl = prev_cum_pnl + pnl_value
-        else:
-            cumulative_pnl = prev_cum_pnl
 
-        new_signal = Signal(symbol=symbol, event=event, price=price, time=time_str, pnl=pnl_value, cumulative_pnl=cumulative_pnl)
+        new_signal = Signal(symbol=symbol, event=event, price=price, time=time_str, pnl=pnl_value)
         db.session.add(new_signal)
         db.session.commit()
 
-        print(f"🔔 {event.upper()} signal for {symbol} at {price} | PnL: {pnl_value} | Cumulative PnL: {cumulative_pnl}")
+        print(f"🔔 {event.upper()} signal received for {symbol} at {price} | PnL: {pnl_value}")
 
         return jsonify({
             "status": "success",
@@ -90,8 +72,7 @@ def webhook():
             "event": event,
             "price": price,
             "time": time_str,
-            "pnl": pnl_value,
-            "cumulative_pnl": cumulative_pnl
+            "pnl": pnl_value
         }), 200
 
     except Exception as e:
@@ -109,15 +90,15 @@ def view_signals():
             print(f"❌ Error while deleting records: {e}")
         return redirect(url_for('view_signals'))
 
-    signals = Signal.query.order_by(Signal.id.desc()).all()  # latest on top
+    signals = Signal.query.all()
 
-    table_html = """
+    table_html = '''
     <html>
     <head>
-        <title>Stored Signals with Cumulative PnL</title>
+        <title>Stored Signals with PnL</title>
         <style>
             body { font-family: Arial; background-color: #f9f9f9; padding: 20px; text-align: center; }
-            table { border-collapse: collapse; width: 95%; margin: auto; }
+            table { border-collapse: collapse; width: 90%; margin: auto; }
             th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
             th { background-color: #f0f0f0; }
             h1 { text-align: center; }
@@ -133,37 +114,33 @@ def view_signals():
         </style>
     </head>
     <body>
-        <h1>📊 Stored TradingView Signals with Cumulative PnL</h1>
+        <h1>📊 Stored TradingView Signals with PnL</h1>
         <form method="post" onsubmit="return confirm('Are you sure you want to delete all records?');">
             <button type="submit" class="delete-button">🚨 Delete All Records</button>
         </form>
         <table>
             <tr>
-                <th>Seq</th>
                 <th>ID</th>
                 <th>Symbol</th>
                 <th>Event</th>
                 <th>Price</th>
                 <th>Time (IST)</th>
                 <th>PnL</th>
-                <th>Cumulative PnL</th>
             </tr>
-            {% for idx, s in enumerate(signals[::-1], 1) %}
+            {% for s in signals %}
             <tr>
-                <td>{{ idx }}</td>
                 <td>{{ s.id }}</td>
                 <td>{{ s.symbol }}</td>
                 <td>{{ s.event }}</td>
                 <td>{{ s.price }}</td>
                 <td>{{ s.time }}</td>
                 <td>{{ "%.2f"|format(s.pnl) if s.pnl is not none else "" }}</td>
-                <td>{{ "%.2f"|format(s.cumulative_pnl) if s.cumulative_pnl is not none else "" }}</td>
             </tr>
             {% endfor %}
         </table>
     </body>
     </html>
-    """
+    '''
 
     return render_template_string(table_html, signals=signals)
 
