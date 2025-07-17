@@ -1,6 +1,3 @@
-Here is your **properly indented, clean, ready-to-run code** for your Flask TradingView webhook with PnL management:
-
-```
 from datetime import datetime
 from flask import Flask, request, jsonify, render_template_string, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
