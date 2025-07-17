@@ -109,55 +109,67 @@ def view_signals():
     signals = Signal.query.all()
 
     table_html = '''
-    <html>
-    <head>
-        <title>Stored Signals with PnL & Cumulative PnL</title>
-        <style>
-            body { font-family: Arial; background-color: #f9f9f9; padding: 20px; text-align: center; }
-            table { border-collapse: collapse; width: 95%; margin: auto; }
-            th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
-            th { background-color: #f0f0f0; }
-            h1 { text-align: center; }
-            .delete-button {
-                background-color: red;
-                color: white;
-                padding: 10px 20px;
-                border: none;
-                border-radius: 5px;
-                cursor: pointer;
-                margin: 20px;
-            }
-        </style>
-    </head>
-    <body>
-        <h1>📊 Stored TradingView Signals with PnL & Cumulative PnL</h1>
-        <form method="post" onsubmit="return confirm('Are you sure you want to delete all records?');">
-            <button type="submit" class="delete-button">🚨 Delete All Records</button>
-        </form>
-        <table>
-            <tr>
-                <th>ID</th>
-                <th>Symbol</th>
-                <th>Event</th>
-                <th>Price</th>
-                <th>Time (IST)</th>
-                <th>PnL</th>
-                <th>Cumulative PnL</th>
-            </tr>
-            {% for s in signals %}
-            <tr>
-                <td>{{ s.id }}</td>
-                <td>{{ s.symbol }}</td>
-                <td>{{ s.event }}</td>
-                <td>{{ s.price }}</td>
-                <td>{{ s.time }}</td>
-                <td>{{ "%.2f"|format(s.pnl) if s.pnl is not none else "" }}</td>
-                <td>{{ "%.2f"|format(s.cumulative_pnl) if s.cumulative_pnl is not none else "" }}</td>
-            </tr>
-            {% endfor %}
-        </table>
-    </body>
-    </html>
+            <html>
+            <head>
+                <title>Stored Signals with PnL & Cumulative PnL</title>
+                <style>
+                    body { font-family: Arial; background-color: #f9f9f9; padding: 20px; text-align: center; }
+                    table { border-collapse: collapse; width: 95%; margin: auto; }
+                    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+                    th { background-color: #f0f0f0; }
+                    h1 { text-align: center; }
+                    .delete-button {
+                        background-color: red;
+                        color: white;
+                        padding: 10px 20px;
+                        border: none;
+                        border-radius: 5px;
+                        cursor: pointer;
+                        margin: 20px;
+                    }
+                    .pnl-profit { color: green; font-weight: bold; }
+                    .pnl-loss { color: red; font-weight: bold; }
+                </style>
+            </head>
+            <body>
+                <h1>📊 Stored TradingView Signals with PnL & Cumulative PnL</h1>
+                <form method="post" onsubmit="return confirm('Are you sure you want to delete all records?');">
+                    <button type="submit" class="delete-button">🚨 Delete All Records</button>
+                </form>
+                <table>
+                    <tr>
+                        <th>ID</th>
+                        <th>Symbol</th>
+                        <th>Event</th>
+                        <th>Price</th>
+                        <th>Time (IST)</th>
+                        <th>PnL</th>
+                        <th>Cumulative PnL</th>
+                    </tr>
+                    {% for s in signals %}
+                    <tr>
+                        <td>{{ s.id }}</td>
+                        <td>{{ s.symbol }}</td>
+                        <td>{{ s.event }}</td>
+                        <td>{{ s.price }}</td>
+                        <td>{{ s.time }}</td>
+                        <td>
+                            {% if s.pnl is not none %}
+                                {% if s.pnl > 0 %}
+                                    <span class="pnl-profit">{{ "%.2f"|format(s.pnl) }}</span>
+                                {% elif s.pnl < 0 %}
+                                    <span class="pnl-loss">{{ "%.2f"|format(s.pnl) }}</span>
+                                {% else %}
+                                    {{ "%.2f"|format(s.pnl) }}
+                                {% endif %}
+                            {% endif %}
+                        </td>
+                        <td>{{ "%.2f"|format(s.cumulative_pnl) if s.cumulative_pnl is not none else "" }}</td>
+                    </tr>
+                    {% endfor %}
+                </table>
+            </body>
+            </html>
     '''
 
     return render_template_string(table_html, signals=signals)
