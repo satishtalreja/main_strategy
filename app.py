@@ -67,13 +67,21 @@ def webhook():
 
         ist_time = utc_time.astimezone(pytz.timezone("Asia/Kolkata"))
         time_str = ist_time.strftime("%d-%m-%Y %H:%M:%S")
+        today_str = ist_time.strftime("%d-%m-%Y")
 
-        signals_df = pd.read_sql(Signal.query.statement, db.session.bind)
+        # Filter signals for today's date and this symbol
+        signals_df = pd.read_sql(
+            Signal.query.filter(
+                Signal.symbol == symbol,
+                Signal.time.like(f"{today_str}%")
+            ).statement,
+            db.session.bind
+        )
+
         total_purchase = signals_df['trade_value'][signals_df['event'] == 'buy'].sum() + (trade_value if event == 'buy' else 0)
         position = signals_df['quantity'][signals_df['event'] == 'buy'].sum() - signals_df['quantity'][signals_df['event'] == 'sell'].sum()
-        position = position + (quantity if event == 'buy' else -quantity)
+        position = position + (quantity if event == 'buy' else 0)
 
-        # Calculate weighted average buy price on buys only
         buy_signals = signals_df[signals_df['event'] == 'buy']
         total_qty = buy_signals['quantity'].sum() + (quantity if event == 'buy' else 0)
         total_cost = (buy_signals['price'] * buy_signals['quantity']).sum() + (price * quantity if event == 'buy' else 0)
@@ -84,8 +92,10 @@ def webhook():
         last_cumulative = last_signal.cumulative_pnl if last_signal and last_signal.cumulative_pnl is not None else 0
 
         if event == "sell":
-            pnl_value = (price - avg_buy_price) * quantity
+            position_of_day = signals_df['quantity'][signals_df['event'] == 'buy'].sum() - signals_df['quantity'][signals_df['event'] == 'sell'].sum()
+            pnl_value = (price - avg_buy_price) * position_of_day
             cumulative_pnl_value = last_cumulative + pnl_value
+            position = 0  # Reset position after sell
         else:
             cumulative_pnl_value = last_cumulative
 
