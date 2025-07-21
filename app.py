@@ -38,7 +38,8 @@ def home():
 @app.route('/webhook', methods=['POST'])
 def webhook():
     try:
-        data = request.get_json()
+        import json
+        data = json.loads(request.data.decode('utf-8'))
         symbol = data.get("symbol")
         event = data.get("event").lower()
         price = float(data.get("price"))
