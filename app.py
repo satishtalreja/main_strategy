@@ -15,6 +15,13 @@ class Signal(db.Model):
     symbol = db.Column(db.String(50))
     event = db.Column(db.String(20))
     price = db.Column(db.Float)
+    lots = db.Column(db.Float)
+    lot_size = db.Column(db.Float)
+    quantity = db.Column(db.Float)
+    trade_value = db.Column(db.Float)
+    total_purchase = db.Column(db.Float)
+    position = db.Column(db.Float)
+    avg_buy_price = db.Column(db.Float)
     time = db.Column(db.String(50))
     pnl = db.Column(db.Float, nullable=True)
     cumulative_pnl = db.Column(db.Float, nullable=True)
@@ -28,7 +35,7 @@ def home():
     <html>
     <head><title>Webhook Receiver</title></head>
     <body style="font-family: Arial; background-color: #f0f8ff; text-align: center; padding-top: 80px;">
-    <h1>🚀 Webhook Receiver with PnL & Cumulative PnL</h1>
+    <h1>🚀 Webhook Receiver with Extended Trade Table</h1>
     <p>Send TradingView webhook to <strong>/webhook</strong> endpoint.</p>
     <p>View stored signals table at <a href='/signals' target='_blank'>/signals</a>.</p>
     </body>
@@ -43,15 +50,13 @@ def webhook():
         symbol = data.get("symbol")
         event = data.get("event").lower()
         price = float(data.get("price"))
-        utc_time_str = data.get("time")
-
-        # utc_time = datetime.strptime(utc_time_str, "%Y-%m-%dT%H:%M:%SZ")
-        # utc_time = pytz.utc.localize(utc_time)
-       
+        lots = float(data.get("lots"))
+        lot_size = float(data.get("lot_size"))
+        quantity = float(data.get("quantity"))
+        trade_value = float(data.get("trade_value"))
         utc_time_raw = data.get("time")
 
         if isinstance(utc_time_raw, int):
-            # TradingView sends milliseconds since epoch, convert to seconds
             utc_time = datetime.utcfromtimestamp(utc_time_raw / 1000)
             utc_time = pytz.utc.localize(utc_time)
         elif isinstance(utc_time_raw, str):
@@ -59,33 +64,42 @@ def webhook():
             utc_time = pytz.utc.localize(utc_time)
         else:
             raise ValueError(f"Unsupported time format received: {utc_time_raw}")
-        
+
         ist_time = utc_time.astimezone(pytz.timezone("Asia/Kolkata"))
         time_str = ist_time.strftime("%d-%m-%Y %H:%M:%S")
 
-        pnl_value = None
-        cumulative_pnl_value = None
+        signals_df = pd.read_sql(Signal.query.statement, db.session.bind)
+        total_purchase = signals_df['trade_value'][signals_df['event'] == 'buy'].sum() + (trade_value if event == 'buy' else 0)
+        position = signals_df['quantity'][signals_df['event'] == 'buy'].sum() - signals_df['quantity'][signals_df['event'] == 'sell'].sum()
+        position = position + (quantity if event == 'buy' else -quantity)
 
-        # Get last cumulative PnL
+        # Calculate weighted average buy price on buys only
+        buy_signals = signals_df[signals_df['event'] == 'buy']
+        total_qty = buy_signals['quantity'].sum() + (quantity if event == 'buy' else 0)
+        total_cost = (buy_signals['price'] * buy_signals['quantity']).sum() + (price * quantity if event == 'buy' else 0)
+        avg_buy_price = (total_cost / total_qty) if total_qty != 0 else 0
+
+        pnl_value = None
         last_signal = Signal.query.order_by(Signal.id.desc()).first()
         last_cumulative = last_signal.cumulative_pnl if last_signal and last_signal.cumulative_pnl is not None else 0
 
         if event == "sell":
-            unmatched_buy = Signal.query.filter_by(symbol=symbol, event='buy', pnl=None).order_by(Signal.id.asc()).first()
-            if unmatched_buy:
-                pnl_value = price - unmatched_buy.price
-                unmatched_buy.pnl = pnl_value
-                db.session.commit()
-                cumulative_pnl_value = last_cumulative + pnl_value
-            else:
-                cumulative_pnl_value = last_cumulative
-        else:  # 'buy' event
+            pnl_value = (price - avg_buy_price) * quantity
+            cumulative_pnl_value = last_cumulative + pnl_value
+        else:
             cumulative_pnl_value = last_cumulative
 
         new_signal = Signal(
             symbol=symbol,
             event=event,
             price=price,
+            lots=lots,
+            lot_size=lot_size,
+            quantity=quantity,
+            trade_value=trade_value,
+            total_purchase=total_purchase,
+            position=position,
+            avg_buy_price=avg_buy_price,
             time=time_str,
             pnl=pnl_value,
             cumulative_pnl=cumulative_pnl_value
@@ -93,13 +107,20 @@ def webhook():
         db.session.add(new_signal)
         db.session.commit()
 
-        print(f"🔔 {event.upper()} signal received for {symbol} at {price} | PnL: {pnl_value} | Cumulative PnL: {cumulative_pnl_value}")
+        print(f"✅ {event.upper()} | {symbol} @ {price} | Qty: {quantity} | PnL: {pnl_value} | Cum PnL: {cumulative_pnl_value}")
 
         return jsonify({
             "status": "success",
             "symbol": symbol,
             "event": event,
             "price": price,
+            "lots": lots,
+            "lot_size": lot_size,
+            "quantity": quantity,
+            "trade_value": trade_value,
+            "total_purchase": total_purchase,
+            "position": position,
+            "avg_buy_price": avg_buy_price,
             "time": time_str,
             "pnl": pnl_value,
             "cumulative_pnl": cumulative_pnl_value
@@ -115,9 +136,9 @@ def view_signals():
         try:
             Signal.query.delete()
             db.session.commit()
-            print("⚠️ All records deleted from signals table.")
+            print("⚠️ All records deleted.")
         except Exception as e:
-            print(f"❌ Error while deleting records: {e}")
+            print(f"❌ Error while deleting: {e}")
         return redirect(url_for('view_signals'))
 
     signals = Signal.query.all()
@@ -125,56 +146,37 @@ def view_signals():
     table_html = '''
         <html>
         <head>
-            <title>Stored Signals with PnL</title>
+            <title>Trade Table with PnL</title>
             <style>
                 body { font-family: Arial; background-color: #f9f9f9; padding: 20px; text-align: center; }
-                table { border-collapse: collapse; width: 90%; margin: auto; }
-                th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+                table { border-collapse: collapse; width: 95%; margin: auto; }
+                th, td { border: 1px solid #ccc; padding: 8px; text-align: center; font-size: 14px; }
                 th { background-color: #f0f0f0; }
                 h1 { text-align: center; }
-                .delete-button {
-                    background-color: red;
-                    color: white;
-                    padding: 10px 20px;
-                    border: none;
-                    border-radius: 5px;
-                    cursor: pointer;
-                    margin: 20px;
-                }
-                .pnl-profit {
-                    color: green;
-                    font-weight: bold;
-                }
-                .pnl-loss {
-                    color: red;
-                    font-weight: bold;
-                }
+                .delete-button { background-color: red; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 20px; }
+                .pnl-profit { color: green; font-weight: bold; }
+                .pnl-loss { color: red; font-weight: bold; }
             </style>
         </head>
         <body>
-            <h1>📊 Stored TradingView Signals with PnL</h1>
-            <form method="post" onsubmit="return confirm('Are you sure you want to delete all records?');">
-                <button type="submit" class="delete-button">🚨 Delete All Records</button>
+            <h1>📊 Trading Table with Live PnL</h1>
+            <form method="post" onsubmit="return confirm('Delete all records?');">
+                <button type="submit" class="delete-button">🚨 Delete All</button>
             </form>
             <table>
                 <tr>
-                    <th>ID</th>
-                    <th>Symbol</th>
-                    <th>Event</th>
-                    <th>Price</th>
-                    <th>Time (IST)</th>
-                    <th>PnL</th>
-                    <th>Cumulative PnL</th>
+                    <th>ID</th><th>SYMBOL</th><th>EVENT</th><th>PRICE</th><th>LOTS</th><th>LOT SIZE</th>
+                    <th>QUANTITY</th><th>TRANSACTION</th><th>TOTAL PURCHASE</th><th>POSITION</th>
+                    <th>AVG BUY PRICE</th><th>TIME</th><th>PnL</th><th>CUMULATIVE PnL</th>
                 </tr>
                 {% for s in signals %}
                 <tr>
-                    <td>{{ s.id }}</td>
-                    <td>{{ s.symbol }}</td>
-                    <td>{{ s.event }}</td>
-                    <td>{{ s.price }}</td>
-                    <td>{{ s.time }}</td>
+                    <td>{{ s.id }}</td><td>{{ s.symbol }}</td><td>{{ s.event }}</td><td>{{ s.price }}</td>
+                    <td>{{ s.lots }}</td><td>{{ s.lot_size }}</td><td>{{ s.quantity }}</td>
+                    <td>{{ s.trade_value }}</td><td>{{ s.total_purchase }}</td><td>{{ s.position }}</td>
+                    <td>{{ "%.2f"|format(s.avg_buy_price) }}</td><td>{{ s.time }}</td>
                     <td>
-                        {% if s.event == 'sell' and s.pnl is not none %}
+                        {% if s.pnl is not none %}
                             {% if s.pnl > 0 %}
                                 <span class="pnl-profit">{{ "%.2f"|format(s.pnl) }}</span>
                             {% elif s.pnl < 0 %}
@@ -182,12 +184,10 @@ def view_signals():
                             {% else %}
                                 {{ "%.2f"|format(s.pnl) }}
                             {% endif %}
-                        {% else %}
-                            <!-- Empty for 'buy' rows -->
                         {% endif %}
                     </td>
                     <td>
-                        {% if s.event == 'sell' and s.cumulative_pnl is not none %}
+                        {% if s.cumulative_pnl is not none %}
                             {% if s.cumulative_pnl > 0 %}
                                 <span class="pnl-profit">{{ "%.2f"|format(s.cumulative_pnl) }}</span>
                             {% elif s.cumulative_pnl < 0 %}
@@ -195,8 +195,6 @@ def view_signals():
                             {% else %}
                                 {{ "%.2f"|format(s.cumulative_pnl) }}
                             {% endif %}
-                        {% else %}
-                            <!-- Empty for 'buy' rows -->
                         {% endif %}
                     </td>
                 </tr>
