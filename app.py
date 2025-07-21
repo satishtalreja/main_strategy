@@ -45,8 +45,21 @@ def webhook():
         price = float(data.get("price"))
         utc_time_str = data.get("time")
 
-        utc_time = datetime.strptime(utc_time_str, "%Y-%m-%dT%H:%M:%SZ")
-        utc_time = pytz.utc.localize(utc_time)
+        # utc_time = datetime.strptime(utc_time_str, "%Y-%m-%dT%H:%M:%SZ")
+        # utc_time = pytz.utc.localize(utc_time)
+       
+        utc_time_raw = data.get("time")
+
+        if isinstance(utc_time_raw, int):
+            # TradingView sends milliseconds since epoch, convert to seconds
+            utc_time = datetime.utcfromtimestamp(utc_time_raw / 1000)
+            utc_time = pytz.utc.localize(utc_time)
+        elif isinstance(utc_time_raw, str):
+            utc_time = datetime.strptime(utc_time_raw, "%Y-%m-%dT%H:%M:%SZ")
+            utc_time = pytz.utc.localize(utc_time)
+        else:
+            raise ValueError(f"Unsupported time format received: {utc_time_raw}")
+        
         ist_time = utc_time.astimezone(pytz.timezone("Asia/Kolkata"))
         time_str = ist_time.strftime("%d-%m-%Y %H:%M:%S")
 
